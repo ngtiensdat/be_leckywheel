@@ -37,16 +37,20 @@ public class QuestController {
             checkIn.setUser(user);
             checkIn.setStreak(1);
         } else {
-            if (checkIn.getLastDate().equals(today)) {
-                return ResponseEntity.badRequest().body("Hôm nay bạn đã điểm danh rồi!");
-            }
-            
-            if (checkIn.getLastDate().equals(today.minusDays(1))) {
-                checkIn.setStreak(checkIn.getStreak() + 1);
-                // Điểm danh liên tiếp từ ngày thứ 2 trở đi là được cộng 1 lượt
-                if (checkIn.getStreak() >= 2) {
-                    user.setSpins(user.getSpins() + 1);
-                    userRepository.save(user);
+            // Kiểm tra null để tránh lỗi crash
+            if (checkIn.getLastDate() != null) {
+                if (checkIn.getLastDate().equals(today)) {
+                    return ResponseEntity.badRequest().body("Hôm nay bạn đã điểm danh rồi!");
+                }
+                
+                if (checkIn.getLastDate().equals(today.minusDays(1))) {
+                    checkIn.setStreak(checkIn.getStreak() + 1);
+                    if (checkIn.getStreak() >= 2) {
+                        user.setSpins(user.getSpins() + 1);
+                        userRepository.save(user);
+                    }
+                } else {
+                    checkIn.setStreak(1);
                 }
             } else {
                 checkIn.setStreak(1);
@@ -58,39 +62,41 @@ public class QuestController {
         return ResponseEntity.ok(checkIn);
     }
 
-    @GetMapping("/checkin/status/{username}")
-    public ResponseEntity<?> getCheckInStatus(@PathVariable String username) {
+    // Lấy trạng thái nộp bài của cả 3 bữa trong ngày
+    @GetMapping("/daily-status/{username}")
+    public List<DailyQuest> getDailyStatus(@PathVariable String username) {
         User user = userRepository.findByUsername(username);
-        return ResponseEntity.ok(checkInRepository.findByUser(user).orElse(null));
+        return dailyQuestRepository.findByUserAndQuestDate(user, LocalDate.now());
     }
 
     // --- LOGIC NHIỆM VỤ ẢNH ---
     @PostMapping("/submit/{username}")
-    public ResponseEntity<?> submitQuest(@PathVariable String username, @RequestBody DailyQuest request) {
+    public ResponseEntity<?> submitQuest(@PathVariable String username, @RequestBody DailyQuest requestBody) {
         User user = userRepository.findByUsername(username);
         LocalTime now = LocalTime.now();
-        String type = "";
+        String type = requestBody.getQuestType(); // Nhận type từ Frontend gửi lên
 
-        // Xác định khung giờ
-        if (now.isAfter(LocalTime.of(6, 0)) && now.isBefore(LocalTime.of(10, 0))) type = "BREAKFAST";
-        else if (now.isAfter(LocalTime.of(12, 0)) && now.isBefore(LocalTime.of(14, 0))) type = "LUNCH";
-        else if (now.isAfter(LocalTime.of(17, 0)) && now.isBefore(LocalTime.of(21, 0))) type = "DINNER";
-        else return ResponseEntity.badRequest().body("Hiện không trong khung giờ nhiệm vụ (6-10h, 12-14h, 17-21h)");
+        // Chặn khung giờ nghiêm ngặt
+        boolean onTime = false;
+        if (type.equals("BREAKFAST") && now.isAfter(LocalTime.of(6, 0)) && now.isBefore(LocalTime.of(10, 0))) onTime = true;
+        else if (type.equals("LUNCH") && now.isAfter(LocalTime.of(12, 0)) && now.isBefore(LocalTime.of(14, 0))) onTime = true;
+        else if (type.equals("DINNER") && now.isAfter(LocalTime.of(17, 0)) && now.isBefore(LocalTime.of(21, 0))) onTime = true;
 
-        // Kiểm tra xem hôm nay đã gửi chưa
+        if (!onTime) return ResponseEntity.badRequest().body("Không đúng khung giờ của nhiệm vụ này!");
+
         Optional<DailyQuest> existing = dailyQuestRepository.findByUserAndQuestTypeAndQuestDate(user, type, LocalDate.now());
-        if (existing.isPresent()) return ResponseEntity.badRequest().body("Bạn đã gửi ảnh cho nhiệm vụ này rồi!");
+        if (existing.isPresent()) return ResponseEntity.badRequest().body("Bạn đã gửi nhiệm vụ này rồi!");
 
         DailyQuest quest = new DailyQuest();
         quest.setUser(user);
         quest.setQuestType(type);
-        quest.setImageData(request.getImageData());
-        quest.setNote(request.getNote());
+        quest.setImageData(requestBody.getImageData());
+        quest.setNote(requestBody.getNote());
         quest.setStatus("PENDING");
         quest.setQuestDate(LocalDate.now());
         
         dailyQuestRepository.save(quest);
-        return ResponseEntity.ok("Đã gửi nhiệm vụ đang chờ Admin duyệt!");
+        return ResponseEntity.ok("Gửi thành công!");
     }
 
     @GetMapping("/admin/pending")
