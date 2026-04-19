@@ -23,6 +23,11 @@ public class UserController {
         return service.getAll();
     }
 
+    @GetMapping("/admin/users")
+    public List<User> getAdminUsers() {
+        return service.getAll();
+    }
+
     @PostMapping
     public User create(@RequestBody User user) {
         return service.create(user);
